@@ -1,2 +1,10 @@
 # Project exclude paths
 /old/
+.idea/.gitignore
+.idea/dataSources.xml
+.idea/dataSources/
+.idea/deployment.xml
+.idea/ida.iml
+.idea/inspectionProfiles/
+.idea/misc.xml
+.idea/modules.xml

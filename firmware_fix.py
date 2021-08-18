@@ -1,4 +1,3 @@
-import idaapi
 import ida_ida
 import ida_kernwin
 import ida_search
@@ -7,36 +6,15 @@ import idautils
 import ida_bytes
 import ida_offset
 import ida_segment
+import ida_idaapi
 
 import functools
 import typing
 
 
-def on_first_call_method(func: callable):
-    first: bool = True
-
-    def call_decorator(f):
-        @functools.wraps(f)
-        def wrapped_function(self, *args, **kwargs):
-            nonlocal first
-            if first:
-                func(self)
-                first = False
-            return f(self, *args, **kwargs)
-
-        return wrapped_function
-
-    return call_decorator
-
-
-def disable_filed(self):
-    input_list = [self.iStartCode, self.iEndCode, self.iStartStr, self.iEndStr, self.iStartP, self.iEndP]
-    for ctrl in input_list:
-        self.EnableField(ctrl, 0)
-
-
 class InfoForm(ida_kernwin.Form):
     def __init__(self):
+        self.first = True
         F = ida_kernwin.Form
         F.__init__(
             self,
@@ -68,8 +46,13 @@ class InfoForm(ida_kernwin.Form):
             }
         )
 
-    @on_first_call_method(disable_filed)
     def OnFormChange(self, fid):
+        if self.first:
+            input_list = [self.iStartCode, self.iEndCode, self.iStartStr, self.iEndStr, self.iStartP, self.iEndP]
+            for ctrl in input_list:
+                self.EnableField(ctrl, 0)
+            self.first = False
+
         notify_ctr = (self.rFunc, self.rString, self.rData)
         notify_map = dict(map(lambda x: (x.id, x), notify_ctr))
 
@@ -179,42 +162,66 @@ def search_data(start: int, end: int):
         ida_offset.op_plain_offset(ea, 0, 0)
 
 
+def main_process():
+    result = InfoForm.show_from()
+    if "func" in result:
+        code_start, code_end = result["func"]
+        search_function(code_start, code_end)
+
+    if "str" in result:
+        str_start, str_end = result["str"]
+        search_string(str_start, str_end)
+
+    if "data" in result:
+        data_start, data_end = result["data"]
+        search_data(data_start, data_end)
+
+
 class DoFix(ida_kernwin.action_handler_t):
     def __init__(self):
         ida_kernwin.action_handler_t.__init__(self)
 
     def activate(self, ctx):
-        result = InfoForm.show_from()
-        if "func" in result:
-            code_start, code_end = result["func"]
-            search_function(code_start, code_end)
-
-        if "str" in result:
-            str_start, str_end = result["str"]
-            search_string(str_start, str_end)
-
-        if "data" in result:
-            data_start, data_end = result["data"]
-            search_data(data_start, data_end)
+        main_process()
+        return 1
 
     def update(self, ctx):
         return ida_kernwin.AST_ENABLE_ALWAYS
 
 
-if __name__ == '__main__':
-    context = Context()
+context = None
 
-    act_name = "firmware:Fixed"
-    if ida_kernwin.register_action(ida_kernwin.action_desc_t(
-            act_name,
-            "fix firmware",
-            DoFix()
-    )):
-        print("add firmware fix plugins")
-        ida_kernwin.attach_action_to_menu("Edit/Plugins/", act_name, ida_kernwin.SETMENU_APP)
-    else:
-        ida_kernwin.unregister_action(act_name)
-        print("add firmware fix plugin failed")
+
+class FirmwareFix_t(ida_idaapi.plugin_t):
+    flags = ida_idaapi.PLUGIN_KEEP
+    comment = "FirmwareFix"
+    help = ""
+    wanted_name = "FirmwareFix"
+    wanted_hotkey = ""
+
+    def init(self):
+        global context
+        context = Context()
+
+        self.act_name = "firmware:Fixed"
+        if ida_kernwin.register_action(ida_kernwin.action_desc_t(
+                self.act_name,
+                "fix firmware",
+                DoFix()
+        )):
+            print("add firmware fix plugins")
+            ida_kernwin.attach_action_to_menu("Edit/Plugins/", self.act_name, ida_kernwin.SETMENU_APP)
+        return ida_idaapi.PLUGIN_KEEP
+
+    def run(self, arg):
+        main_process()
+
+    def term(self):
+        ida_kernwin.unregister_action(self.act_name)
+
+
+def PLUGIN_ENTRY():
+    return FirmwareFix_t()
 
 # print("big" if context.is_be else "little")
 # print(f"bits {context.bits}")
